@@ -1,0 +1,297 @@
+---
+title: "Appendix (Modeling)"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load Libraries
+library("fImport")
+#library(fOptions)
+#library(RQuantLib)
+library(nlstools)
+library(tseries)
+library(Quandl)
+library(zoo)
+library(PerformanceAnalytics)
+library(quantmod)
+library(car)
+library(FinTS)
+library(forecast)
+require(stats)
+#library(stockPortfolio)
+#library(vars)
+library(tseries, quietly = T)
+library(forecast, quietly = T)
+library(XML)
+#library(fBasics)
+#library(timsac)
+library(TTR)
+library(lattice)
+library(foreign)
+library(MASS)
+require(stats4)
+library(KernSmooth)
+#library(fastICA)
+library(cluster)
+library(leaps)
+library(mgcv)
+library(rpart)
+require("datasets")
+require(graphics)
+library(RColorBrewer)
+library(dynlm)
+
+library(readr)
+library(readxl)
+library(tseries)
+library(gridExtra)
+library(grid)
+
+library(tsibbledata)
+library(dplyr)
+library(ggplot2)
+library(tsibble)
+library(ggfortify)
+library(fpp2)
+library(dplyr)
+library(feasts)
+library(quantmod)
+
+library(vars)
+library(prophet)
+library(xts)
+library(dynlm)
+library(plm)
+library(AER)
+```
+
+
+# Part I: Preliminary Data Analysis
+
+```{r}
+# Load Carbon Emissions Futures dataset
+# Source: https://www.investing.com/commodities/carbon-emissions-historical-data
+Carbon <- read_csv("Carbon Emissions Futures Historical Data (all).csv")
+Carbon = Carbon[order(as.Date(Carbon$Date, format="%m/%d/%Y")),]
+
+# Plot the time-series plot, ACF, and PACF
+Carbon_ts = ts(Carbon$Price, freq=250)
+t <- seq(2013.1, 2023.12, length=length(Carbon_ts))
+plot(t, Carbon_ts, type="l", xlab="Time", ylab="Price", 
+     main="Carbon Emissions Futures Data from 2013-2023")
+acf(Carbon_ts, main="ACF of Carbon Emissions Futures Data from 2013-2023")
+pacf(Carbon_ts, main="PACF of Carbon Emissions Futures Data from 2013-2023")
+```
+
+```{r}
+# Perform additive decomposition
+dcmp_add = decompose(ts(Carbon_ts, frequency=250), "additive")
+plot(dcmp_add)
+
+# Perform multiplicative decomposition
+dcmp_multi = decompose(ts(Carbon_ts, frequency=250), "multiplicative")
+plot(dcmp_multi)
+```
+
+
+# Part II: Long-Term Analysis
+## 1. ARIMA
+```{r}
+fit.arima = auto.arima(Carbon_ts)
+summary(fit.arima)
+plot(forecast(fit.arima, h=100))
+```
+
+```{r}
+checkresiduals(fit.arima$residuals)
+fit.arima.res = auto.arima(fit.arima$residuals)
+summary(fit.arima.res)
+```
+
+
+## 2. NNETAR
+```{r}
+Carbon_xts <- xts(Carbon$Price, order.by = as.Date(Carbon$Date, format="%m/%d/%Y"))
+fit.nnetar = nnetar(Carbon_xts)
+fit.nnetar
+forecast::accuracy(fit.nnetar)
+```
+
+```{r}
+checkresiduals(fit.nnetar$residuals)
+fit.nnetar.res = auto.arima(fit.nnetar$residuals)
+summary(fit.nnetar.res)
+```
+
+## 3. Prophet
+```{r}
+# Create a data frame with carbon dataset
+# Source: https://facebook.github.io/prophet/docs/diagnostics.html
+Carbon_df <- data.frame(ds=as.Date(Carbon$Date, format="%m/%d/%Y"), y=Carbon$Price)
+fit.prophet <- prophet(Carbon_df)
+future.df.prophet <- make_future_dataframe(fit.prophet, periods=100)
+forecast.prophet <- predict(fit.prophet, future.df.prophet)
+plot(fit.prophet, forecast.prophet, xlab="Time", ylab="Price", main="Prophet forecasting")
+prophet_plot_components(fit.prophet, forecast.prophet)
+```
+
+```{r, warning=FALSE}
+# Prophet Analysis
+df.cv <- cross_validation(fit.prophet, horizon=100, units="days")
+head(df.cv)
+df.p <- performance_metrics(df.cv)
+head(df.p)
+```
+
+```{r}
+# Prophet with daily seasonality
+fit.prophet <- prophet(Carbon_df, daily.seasonality=TRUE)
+future.df.prophet <- make_future_dataframe(fit.prophet, periods=100)
+forecast.prophet <- predict(fit.prophet, future.df.prophet)
+plot(fit.prophet, forecast.prophet, xlab="Time", ylab="Price", 
+     main="Prophet forecasting with daily seasonality")
+```
+
+```{r, warning=FALSE}
+# Prophet Analysis
+df.cv <- cross_validation(fit.prophet, horizon=100, units="days")
+head(df.cv)
+df.p <- performance_metrics(df.cv)
+head(df.p)
+```
+
+
+
+
+
+# Part II: Short-Term Analysis with Econometric Models
+
+## 0. Data Preprocessing
+
+```{r}
+# Load Carbon Emissions Futures Dataset
+Carbon <- read_csv("Carbon Data 2020.csv")
+Carbon = Carbon[order(as.Date(Carbon$Date, format="%m/%d/%Y")),]
+Carbon_ts = ts(Carbon$Price, freq=250)
+t <- seq(2020, 2024, length = length(Carbon_ts))
+plot(t, Carbon_ts, type="l", xlab="Time", ylab="Price", 
+     main="Carbon Emissions Futures Data from 2020-2023")
+```
+
+```{r}
+# Load TSLA dataset
+getSymbols("TSLA", from="2020-01-01", to="2023-12-01")
+tsla_ts = ts(TSLA$TSLA.Close, freq=250)
+t <- seq(2020, 2024, length=length(tsla_ts))
+plot(t, tsla_ts, type="l", ylab="Price", main="TSLA Daily Stock Price from 2020-2023")
+```
+
+```{r}
+# Load Brent Oil Futures
+getSymbols("BZ=F", src="yahoo", from="2020-01-01", to="2023-12-01")
+brent_data <- Cl(get("BZ=F"))
+head(brent_data)
+brent_ts = ts(brent_data$`BZ=F.Close`, freq=250)
+t <- seq(2020, 2024, length=length(brent_ts))
+plot(t, brent_ts, type="l", ylab="Price", main="Brent Oil Futures from 2020-2023")
+```
+
+```{r}
+# Load Dow Jones Commodity Energy
+# https://www.marketwatch.com/investing/index/djusen/download-data?countrycode=xx
+DJUSEN <- read_csv("DJUSEN.csv")
+DJUSEN = DJUSEN[order(as.Date(DJUSEN$Date, format="%m/%d/%Y")),]
+DJUSEN_ts = ts(DJUSEN$Close, freq=250)
+t <- seq(2013.1, 2023.12, length=length(DJUSEN_ts))
+plot(t, DJUSEN_ts, type="l", main="DJUSEN Data from 2020-2023", ylab="Price")
+```
+
+```{r}
+# Load S&P Dow Jones Indices
+getSymbols("^GSPC", src="yahoo", from="2020-01-01", to="2023-12-01")
+sp500_data <- Cl(get("GSPC"))
+head(sp500_data)
+sp500_ts = ts(sp500_data$GSPC.Close, freq=250)
+t <- seq(2020, 2024, length=length(sp500_ts))
+plot(t, sp500_ts, type="l", ylab="Price", main="S&P Dow Jones Indices from 2020-2023")
+```
+
+```{r}
+# Put all data into one xts object
+Carbon <- xts(Carbon$Price, order.by = as.Date(Carbon$Date, format="%m/%d/%Y"))
+DJUSEN <- xts(DJUSEN$Close, order.by = as.Date(DJUSEN$Date, format="%m/%d/%Y"))
+mixed_dataset <- merge(brent_data, Carbon, all=TRUE)
+mixed_dataset <- merge(mixed_dataset, DJUSEN, all=TRUE)
+mixed_dataset <- merge(mixed_dataset, sp500_data, all=TRUE)
+mixed_dataset <- merge(mixed_dataset, TSLA$TSLA.Close, all=TRUE)
+mixed_dataset <- na.omit(mixed_dataset)
+```
+
+```{r}
+# Create ts objects
+Carbon_ts = ts(mixed_dataset$Carbon, freq=250)
+brent_ts = ts(mixed_dataset$BZ.F.Close, freq=250)
+DJUSEN_ts = ts(mixed_dataset$DJUSEN, freq=250)
+sp500_ts = ts(mixed_dataset$GSPC.Close, freq=250)
+tsla_ts = ts(mixed_dataset$TSLA.Close, freq=250)
+```
+
+```{r}
+# Create a data frame
+df <- data.frame(
+  Carbon_ts = Carbon_ts,
+  brent_ts = brent_ts,
+  tsla_ts = tsla_ts,
+  DJUSEN_ts = DJUSEN_ts,
+  sp500_ts = sp500_ts
+)
+```
+
+## 1. VAR
+
+```{r}
+# Estimate an VAR model
+var_model <- VAR(df, p=2)
+summary(var_model)
+plot(irf(var_model))
+```
+
+```{r}
+# Granger causality test
+grangertest(Carbon_ts ~ tsla_ts, order=6)
+```
+
+
+
+# 2. Linear Regression and PCA
+
+```{r}
+# Linear Regression
+reg.mod <- dynlm(Carbon_ts ~ L(Carbon_ts, 1) + tsla_ts + L(tsla_ts, 6) + 
+                   brent_ts + DJUSEN_ts + sp500_ts)
+summary(reg.mod)
+vif(reg.mod)
+```
+
+```{r}
+# PCA to reduce multicollinearity
+data <- data.frame(Carbon_ts, tsla_ts, brent_ts, DJUSEN_ts, sp500_ts, lag(tsla_ts, 6))
+pca_result <- prcomp(data, scale.=TRUE)
+# Extract principal components and create new data frame
+summary(pca_result)
+pc_data <- data.frame(pca_result$x)
+# Regression using principal components
+reg_mod_pc <- lm(Carbon_ts ~ PC1 + PC2 + PC3, data = pc_data)
+summary(reg_mod_pc)
+```
+
+## 3. IV Regression
+```{r}
+iv_model <- ivreg(Carbon_ts ~ tsla_ts + brent_ts | DJUSEN_ts + sp500_ts)
+summary(iv_model)
+```
+
+
+
+
