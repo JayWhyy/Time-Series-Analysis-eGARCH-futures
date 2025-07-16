@@ -1,0 +1,315 @@
+
+---
+title: "Time series Jaya"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Download all libraries
+```{r}
+library(timeSeries)
+library(tseries)
+library(forecast)
+library(dplyr)
+library(readxl)
+library(rugarch)
+library(ggplot2)
+
+```
+
+
+```{r}
+carbon <- read.csv("Carbon_Emissions_Futures_Historical_Data_Nov3.csv")
+head(carbon)
+
+```
+
+Plot the time series
+
+```{r}
+co <- carbon[1040:2800,]
+cps <- ts(co[,c(2)], start = c(2017,1,2), frequency = 260)
+plot(cps, ylab = "Prices of Carbon emission futures")
+```
+
+
+```{r}
+carbon$returnco  = carbon$Price /lag(carbon$Price,1) -1
+carbon$lreturnco = log(1+ carbon$returnco)
+head(carbon)
+
+```
+
+Plot the Log returns time series
+
+```{r}
+lr <- carbon[1040:2800,]
+lrall <- ts(lr[,c(9)], start = c(2017,1,2), frequency = 260)
+plot(lrall, ylab = "Log returns of Carbon emission futures")
+```
+
+Number of days
+```{r}
+length(lrall)
+```
+
+
+```{r}
+
+summary(lrall)
+
+```
+
+
+
+```{r}
+hist(lrall, main = "Histogram of Log returns of Carbon emission futures", xlab = "Log returns of Carbon emission futures")
+```
+
+Split into training and testing data
+
+```{r}
+# Data from 2017 to end of 2022 for training, and 2023 for testing
+lrtspre <- ts(carbon[1040:2582,c(9)], start = c(2017,1,2), frequency = 260)
+lrpre <- window(lrtspre,start = c(2017,1))
+lrtspost <- ts(carbon[2583:2800,c(9)], start = c(2023,1,2), frequency = 260)
+lrpost <- window(lrtspost, start = c(2023,1))
+```
+
+Plot the Log returns time series for the training data
+
+```{r}
+plot(lrpre, ylab = "Log returns of Carbon emission futures", xlab = "Year")
+```
+
+
+Check ACF, PACF and stationarity of the training data
+
+```{r}
+acf(lrpre)
+```
+
+
+```{r}
+pacf(lrpre)
+```
+
+```{r}
+adf.test(lrpre)
+```
+
+Develop best model of ARIMA
+
+```{r}
+
+automodel = auto.arima(lrpre,lambda = "auto")
+summary(automodel)
+
+```
+
+```{r}
+library(lmtest)
+coeftest(automodel)
+```
+
+Choose the best MA model
+
+```{r}
+M0a <- Arima(lrpre, order = c(0,0,0))  
+summary(M0a)
+M0b <- Arima(lrpre, order = c(1,0,0))  
+summary(M0b)
+M0c <- Arima(lrpre, order = c(2,0,0))  
+summary(M0c)
+M1 <- Arima(lrpre, order = c(0,0,1))  
+summary(M1)
+M2 <- Arima(lrpre, order = c(1,0,1))  
+summary(M2)
+M3 <- Arima(lrpre, order = c(2,0,1))  
+summary(M3)
+M4 <- Arima(lrpre, order = c(0,0,2))  
+summary(M4)
+M5 <- Arima(lrpre, order = c(1,0,2))  
+summary(M5)
+M6 <- Arima(lrpre, order = c(2,0,2))  
+summary(M6)
+M7 <- Arima(lrpre, order = c(0,0,3))  
+summary(M7)
+M8 <- Arima(lrpre, order = c(0,0,4))  
+summary(M8)
+M9 <- Arima(lrpre, order = c(0,0,5))  
+summary(M9)
+```
+
+
+
+```{r}
+AIC(M0a)
+AIC(M0b)
+AIC(M0c)
+AIC(M1)
+AIC(M2)
+AIC(M3)
+AIC(M4)
+AIC(M5)
+AIC(M6)
+AIC(M7)
+AIC(M8)
+AIC(M9)
+```
+
+```{r}
+library(lmtest)
+coeftest(M3)
+coeftest(M4)
+coeftest(M9)
+```
+
+
+Check residuals
+
+```{r}
+checkresiduals(M4)
+```
+
+
+```{r}
+
+M4f = forecast(M4,h=length(lrpost))
+colors <- c("Train" = "green", "Test" = "blue", "MA(2) Prediction" = "orange", "MA(2) Forecast" = "red")
+
+autoplot(lrpre, series = "Train") +
+  autolayer(lrpost, series = "Test") +
+  theme_bw() +
+  autolayer(M4f$fitted, series = "MA(2) Prediction") +
+  autolayer(M4f$mean, series = "MA(2) Forecast") +
+  scale_color_manual(values = colors) +
+  labs(color = "Series", y = "Log returns of Carbon emission futures") 
+
+```
+
+
+Compare different EGARCH models
+
+```{r}
+garchspec1 <- ugarchspec(mean.model = list(armaOrder = c(0,2), include.mean = FALSE), 
+                        variance.model = list(model = "eGARCH", garchOrder = c(1, 1)),
+                        distribution.model = "sstd")
+garchfit1 <- ugarchfit(data = lrpre, spec = garchspec1)
+AIC1 = -2*garchfit1@fit$LLH
+AIC1 
+```
+
+```{r}
+
+garchspec2 <- ugarchspec(mean.model = list(armaOrder = c(0,2), include.mean = FALSE), 
+                        variance.model = list(model = "eGARCH", garchOrder = c(1, 2)),
+                        distribution.model = "sstd")
+garchfit2 <- ugarchfit(data = lrpre, spec = garchspec2)
+AIC2 = -2*garchfit2@fit$LLH
+AIC2 
+```
+
+
+```{r}
+
+garchspec3 <- ugarchspec(mean.model = list(armaOrder = c(0,2), include.mean = FALSE), 
+                        variance.model = list(model = "eGARCH", garchOrder = c(2,1)),
+                        distribution.model = "sstd")
+garchfit3 <- ugarchfit(data = lrpre, spec = garchspec3)
+AIC3 = -2*garchfit3@fit$LLH
+AIC3 
+```
+
+
+```{r}
+
+garchspec4 <- ugarchspec(mean.model = list(armaOrder = c(0,2)), 
+                        variance.model = list(model = "eGARCH", garchOrder = c(2, 2)),
+                        distribution.model = "sstd")
+garchfit4 <- ugarchfit(data = lrpre, spec = garchspec4)
+AIC4 = -2*garchfit4@fit$LLH
+AIC4 
+```
+
+Get the estimation MA(2)-EGARCH(2,2)
+
+```{r}
+garchfit4
+```
+
+Check residuals
+
+```{r}
+
+par(mfrow=c(2,2))
+plot(garchfit4, which=8)
+plot(garchfit4, which=9)
+plot(garchfit4, which=10)
+plot(garchfit4, which=11)
+
+
+```
+
+Perfect fit in the training data and testing data
+
+```{r}
+lrall <- ts(carbon[1040:2800,c(9)], start = c(2017,1,2), frequency = 265)
+
+library(fGarch)
+garch_model <- garchFit(formula = ~garch(2, 2), data = lrall)
+mean_model_garch <- fitted(garch_model)
+n_forecast <- length(lrpost)  # Number of periods to forecast
+forecast_values <- predict(garch_model, n.ahead = n_forecast)
+
+ylim <- c(-0.15, 0.2)
+plot.ts(lrall, col = "grey", ylim=ylim, xaxt = "n", xlab = "Year", ylab ="Value")
+axis(1, at = time(lrall), labels = format(time(lrall)))
+
+par(new = TRUE)
+plot.ts(c(mean_model_garch[1:length(lrpre)], rep(NA, length(lrpost))), col = "green", ylim = ylim, axes = FALSE, xlab = "", ylab = "")
+#lines(c(rep(NA, length(mean_model_garch)), forecast_values$meanForecast), col = "red")
+
+# Add legend
+legend("topright", legend = c("Log Returns", "Prediction MA(2)-EGARCH(2,2)"), col = c('grey', 'green'), lwd = 2)
+
+```
+
+```{r}
+
+ylim <- c(-0.15, 0.2)
+plot.ts(lrall, col = "grey", ylim=ylim, xaxt = "n", xlab = "Year", ylab ="Value")
+axis(1, at = time(lrall), labels = format(time(lrall)))
+
+par(new = TRUE)
+plot.ts(c(mean_model_garch[1:length(lrpre)], rep(NA, length(lrpost))), col = "green", ylim = ylim, axes = FALSE, xlab = "", ylab = "")
+par(new = TRUE)
+plot.ts(c(rep(NA, length(lrpre)), mean_model_garch[1544:1761]), col = "red", ylim = ylim, axes = FALSE, xlab = "", ylab = "")
+
+# Add legend
+legend("topright", legend = c("Log Returns", "Prediction MA(2)-EGARCH(2,2)", "Forecast MA(2)-EGARCH(2,2)"), col = c('grey', 'green','red'), lwd = 2)
+
+```
+
+
+
+```{r}
+
+mean_model_fit4 <- fitted(garchfit4)
+cond_volatility4 <- sigma(garchfit4)
+
+
+ylim <- c(-0.065, 0.065)
+plot.ts(lrpost, col = "grey", ylim=ylim, xaxt = "n", xlab = "Year", ylab ="Value")
+axis(1, at = time(lrpost), labels = format(time(lrpost)))
+par(new=TRUE)
+plot.ts(mean_model_fit4, col="red", ylim=ylim, axes = FALSE, xlab = "", ylab ="")
+par(new=TRUE)
+plot.ts(cond_volatility4, col="blue", ylim=ylim, axes = FALSE, xlab = "", ylab ="")
+
+
+
+```
